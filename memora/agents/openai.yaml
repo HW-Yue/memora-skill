@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memora"
+  short_description: "Connect agents to a local Memora semantic database"
+  default_prompt: "Use $memora to check my local installation and work with my Memora database."
