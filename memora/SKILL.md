@@ -36,6 +36,15 @@ one host-independent natural-language Task, Database scope, and budget. Codex
 and Claude Code execute that same Task; Kimi is recorded only as a host-managed
 Provider profile, never as a separate Memora protocol or Skill.
 
+## Product manual and Admin
+
+When the user asks what Memora is, how the architecture works, how a read/write
+flows through the engine, or how to use/troubleshoot the local Admin, read
+[`references/product-manual.md`](references/product-manual.md). It is the
+stable product and operations guide; it must not be used as a substitute for
+live MSQL discovery. Admin is a local, read-only observer on `127.0.0.1:3888`;
+all facts and all mutations still come from the scoped daemon through MSQL.
+
 ## Install once
 
 Before the first Memora operation in a session, resolve this Skill's directory
