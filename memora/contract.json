@@ -146,6 +146,11 @@
       "msql": "SHOW ROUTE CANDIDATES FROM ALL TABLES USING LEXICAL :lexical_query LIMIT :lexical_limit BYTES :lexical_bytes"
     },
     {
+      "name": "lexical-locations",
+      "command": "memora query --input '{\"parameters\":{\"named\":{\"query\":\"crash recovery\",\"location_limit\":10,\"utf8_byte_limit\":8192}},\"authorization\":{\"version\":\"memora.authorization/v2\",\"actor\":\"agent:host\",\"authorized_databases\":[\"work\"],\"default_level\":\"L0\"}}' \"SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query LIMIT :location_limit BYTES :utf8_byte_limit\"",
+      "msql": "SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query LIMIT :location_limit BYTES :utf8_byte_limit"
+    },
+    {
       "name": "route-root",
       "command": "memora query --input '{\"parameters\":{\"named\":{\"cursor\":\"\",\"limit\":12}},\"authorization\":{\"version\":\"memora.authorization/v2\",\"actor\":\"agent:host\",\"authorized_databases\":[\"work\"],\"default_level\":\"L0\"}}' \"SHOW ROUTES FROM TABLE work.notes AT ROOT CURSOR :cursor LIMIT :limit\"",
       "msql": "SHOW ROUTES FROM TABLE work.notes AT ROOT CURSOR :cursor LIMIT :limit"
@@ -167,7 +172,7 @@
     },
     {
       "name": "write",
-      "command": "memora exec --input '{\"parameters\":{\"named\":{\"row\":\"row_01\",\"summary\":\"Route results are locators only\"}},\"mutation\":{\"expected_schema_version\":1,\"expected_revision\":2,\"max_affected_rows\":1,\"route_leaf_ids\":[\"route_query\"],\"actor\":\"agent:host\",\"source\":\"conversation:event-7\",\"reason\":\"refine verified conclusion\"},\"authorization\":{\"version\":\"memora.authorization/v2\",\"actor\":\"agent:host\",\"authorized_databases\":[\"work\"],\"default_level\":\"L1\"}}' \"UPDATE work.notes SET summary = :summary WHERE row_id = :row\"",
+      "command": "memora exec --input '{\"parameters\":{\"named\":{\"row\":\"row_01\",\"summary\":\"<complete self-contained ~1,000-CJK-character Markdown document; abbreviated in this example>\"}},\"mutation\":{\"expected_schema_version\":1,\"expected_revision\":2,\"max_affected_rows\":1,\"route_leaf_ids\":[\"route_query\"],\"actor\":\"agent:host\",\"source\":\"conversation:event-7\",\"reason\":\"refine verified conclusion\"},\"authorization\":{\"version\":\"memora.authorization/v2\",\"actor\":\"agent:host\",\"authorized_databases\":[\"work\"],\"default_level\":\"L1\"}}' \"UPDATE work.notes SET summary = :summary WHERE row_id = :row\"",
       "msql": "UPDATE work.notes SET summary = :summary WHERE row_id = :row"
     },
     {

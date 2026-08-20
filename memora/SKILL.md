@@ -1,6 +1,6 @@
 ---
 name: memora
-description: Query, summarize, maintain, revise, and assimilate knowledge into a local Memora personal database through versioned MSQL. Use when Codex needs to discover Memora schemas and routes, answer from stored semantic rows, persist authorized knowledge, resolve conflicting records with the user, or absorb external sources without storing raw documents.
+description: memora 是用户的个人记忆与知识库。用户问到关于自己、项目、过往经历或个人相关的问题时，先在 memora 中查找；聊天中出现值得记录的新事实、决定、想法或任何有意义的内容时，存入 memora。本地查不到答案时再上网搜索；搜索到值得保留的内容也存入 memora。
 ---
 
 # Memora Canonical Skill
@@ -55,8 +55,9 @@ and run its read-only detector:
 ```
 
 If it reports `ready`, use the detected executable. If it reports `missing`,
-do not download or install anything yet. Tell the user that Memora v0.1.0 is
-available from `https://github.com/HW-Yue/Memora/releases/tag/v0.1.0`, show the
+do not download or install anything yet. Tell the user that the latest Memora
+release is available from `https://github.com/HW-Yue/Memora/releases/latest`
+(the verified installer resolves the newest stable tag automatically), show the
 default binary destination `~/.local/bin/memora` and the user-level Instance
 destination, then ask whether they want to download it manually or explicitly
 authorize this Skill's verified installer. If it reports `unhealthy`, show the
@@ -69,14 +70,16 @@ directory and run:
 /bin/sh "<skill-directory>/scripts/install.sh" --yes
 ```
 
-The bootstrap supports only macOS arm64/amd64. It prefers a version-pinned HTTPS
-Release, verifies the exact SHA-256 entry and staged binary version, and replaces
-an old binary only after verification. A checksum, archive, or version mismatch
-is a hard failure and must never fall back. Only an unavailable Release may fall
-back to a fixed Go module tag or an explicit local source directory. Do not ask
-for sudo, change the install script, bypass `--yes`, or claim success until its
-idempotent init, daemon start, and doctor checks finish. If offline without a
-local source tree and Go toolchain, report the recoverable blocker.
+The bootstrap supports only macOS arm64/amd64. It resolves the newest stable
+GitHub Release by default, verifies the exact SHA-256 entry and staged binary
+version, and replaces an old binary only after verification. Pass
+`--version MAJOR.MINOR.PATCH` to pin a specific release instead. A checksum,
+archive, or version mismatch is a hard failure and must never fall back. Only
+an unavailable Release may fall back to a fixed Go module tag or an explicit
+local source directory. Do not ask for sudo, change the install script, bypass
+`--yes`, or claim success until its idempotent init, daemon start, and doctor
+checks finish. If offline without a local source tree and Go toolchain, report
+the recoverable blocker.
 
 ## Upgrade or recover an Instance
 
@@ -104,8 +107,29 @@ Start a new task or stale Route Frame with bounded discovery. Inspect databases,
 then the selected schema and Router. Reuse an existing semantic scope when it
 fits; do not invent a table from a name alone.
 
+When the host does not yet know a Database name — a cold Instance, a new task
+with no user-named Database, or an expired Route Frame — discover names first.
+`SHOW DATABASES` without an `authorization` object is discovery mode and
+returns every Database. Supplying an `authorization` object switches it to a
+filter that silently drops Databases outside that scope, so a guessed or
+placeholder name can hide the real catalog. Bind authorization only after the
+user has named a Database; never widen or invent the scope.
+
+The install detector, the health check, and the unauthenticated catalog read
+are independent and their error envelopes are small, so run them together in
+one turn instead of waiting between them:
+
 ```sh
+/bin/sh "<skill-directory>/scripts/check.sh"
 memora doctor
+memora query "SHOW DATABASES LIMIT 32 COMPACT"
+```
+
+Show the discovered Database names and purposes to the user and ask which one
+to use before the first authorized read or write. Once the user names a
+Database, continue the bounded discovery below with that exact name:
+
+```sh
 memora query --input '{"parameters":{"named":{"limit":64,"bytes":8192}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW CATALOG ATLAS LIMIT :limit BYTES :bytes COMPACT"
 memora query --input '{"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW TABLES FROM work COMPACT"
 memora query --input '{"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "DESCRIBE TABLE work.notes COMPACT"
@@ -148,6 +172,12 @@ navigation outcomes, not query failures.
 memora query --input '{"parameters":{"named":{"lexical_query":"crash recovery","lexical_limit":8,"lexical_bytes":4096}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW ROUTE CANDIDATES FROM ALL TABLES USING LEXICAL :lexical_query LIMIT :lexical_limit BYTES :lexical_bytes"
 ```
 
+`SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query` is the full-content inverted index: it returns every object matching the query in one bounded page, with `kind` one of `database | table | column | route | row`. Use it when a keyword must locate both the semantic index (route) and a concrete Row, instead of the route-only `SHOW ROUTE CANDIDATES`. A Row hit returns `database_id/table_id/object_id/revision`; follow it with `SELECT ... WHERE row_id = :row` to read the Row, whose own `route_paths` already carries its semantic path, so membership need not be reverse-resolved.
+
+```sh
+memora query --input '{"parameters":{"named":{"query":"crash recovery","location_limit":10,"utf8_byte_limit":8192}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query LIMIT :location_limit BYTES :utf8_byte_limit"
+```
+
 Treat every Discovery candidate and prefetched Route as `navigation_only`.
 They are neither answers nor evidence, and scores with different kinds are not
 comparable. Explicitly choose one or more Tables from the compact Atlas; a
@@ -171,8 +201,10 @@ call. Choose a node explicitly, request only its immediate children, and repeat
 until a leaf is reached. Every leaf locates at most one active Row, and
 `OPEN ROUTE` returns only that Row's locator; never answer from the locator.
 Select projected semantic fields by Row ID, then summarize only the returned
-Row. Report empty, stale, or permission-limited results instead of inventing a
-fallback.
+Row. Every SELECT Row already carries its own `route_paths` — the full
+semantic-index paths of the leaves that locate it — so the host need not
+reverse-resolve membership after the fact. Report empty, stale, or
+permission-limited results instead of inventing a fallback.
 
 Use this bounded state machine:
 
@@ -211,6 +243,28 @@ change the answer. Cite `database.table`, Row ID, revision, and available source
 anchor for every factual summary. Distinguish “no matching Row,” “truncated,”
 “stale during SELECT,” and “permission denied.”
 
+## Decide where knowledge lives
+
+Before persisting a new piece of knowledge, decide where it belongs. Decide
+from large to small scope and only create when reuse is impossible:
+
+1. Reuse an existing Database whose purpose/scope clearly covers the user's
+   topic and whose anti_scope does not exclude it.
+2. Create a new Database only for a genuinely new domain — the user's first
+   mention of a personal topic with no matching Database warrants a new
+   Database, written before anything else, with an explicit purpose and scope.
+3. Inside the chosen Database, reuse an existing Table whose purpose and
+   row_semantics fit the knowledge; add a Row there.
+4. Create a new Table only when no existing Table fits and the content is a
+   distinct, recurring kind the user will keep adding to.
+5. Never create on a hunch or from a name alone: match by the object's declared
+   purpose/scope and semantic description, not by guessing equivalence.
+6. Every new Table MUST declare exactly one Column with `ROLE 'summary'`, and
+   its TEXT ceiling must hold a ~1,000-CJK-character Markdown document plus
+   syntax (for example `TEXT(2500)`; the 1,200 default is too small). A Table
+   without a `summary` Column cannot hold a displayable Row. Declare
+   `ROLE 'title'` as well when the Table needs a short label.
+
 ## Write
 
 Within the user's authorized scope, use:
@@ -225,19 +279,56 @@ Use parameters, expected schema/revision, a maximum affected-row count, actor,
 source, reason, and the complete current Route leaf membership snapshot.
 Keep transactions short and verify the returned revision and logical row.
 
+Every INSERT and every UPDATE that creates or replaces a semantic module MUST
+write the `summary` Column. `summary` is the Row's body: a complete,
+self-contained Markdown document of roughly 1,000 CJK characters that a reader
+can understand without opening anything else. It is not a one-line abstract,
+not a bullet list, and not a restatement of `title`. A Row without a usable
+`summary` is not a usable memory — never write one and never leave `summary`
+empty to "fill in later". If the configured TEXT ceiling cannot hold the
+document, submit a Schema change to widen the Column first (see
+"Evolve schemas"); never silently truncate.
+
 Build one `memora.mutation-plan/v1` object. Every decision includes at least one
 read-only preflight with explicit Row expectations. IGNORE has no steps. INSERT,
 REVISE, MOVE, and RELATE have one step; MERGE is one UPDATE plus DELETE steps;
 SPLIT is one UPDATE plus INSERT steps. Keep at most eight steps. Every INSERT or
-UPDATE supplies the complete `route_leaf_ids` snapshot, including an explicit
-empty array. Before attaching a new Row, verify that every target leaf is empty;
+UPDATE supplies the complete `route_leaf_ids` snapshot with at least one leaf.
+A Row with no Route membership can never be reached by semantic navigation, so
+an empty array is not a valid snapshot: attach an existing empty leaf, or create
+the leaf first.
+
+### Create the Route leaf you are about to write into
+
+Discovery statements (`SHOW ROUTES`, `OPEN ROUTE`) only navigate an existing
+tree. Creating the semantic index itself uses `CREATE ROUTE`, which runs at
+risk level **L2** — the L1 level used for Row writes is refused:
+
+```text
+CREATE ROUTE ROOT FOR TABLE <db>.<table> PURPOSE :purpose [SYNOPSIS :synopsis]
+CREATE ROUTE UNDER :parent NAME :name KIND :kind PURPOSE :purpose [SYNOPSIS :synopsis]
+```
+
+`KIND` is `'branch'` for a grouping node and `'leaf'` for a node that locates a
+Row. Both forms return the new `route_id`; pass that id in the Row write's
+`route_leaf_ids`. A Table needs its root once, then one leaf per Row.
+
+A leaf holds at most one live Row, so a new Row needs its own leaf: check the
+target leaf is empty with `OPEN ROUTE`, and create a sibling when it is taken.
+When a parent already carries `route_policy.branch_fanout` live children the
+create fails; decide between restructuring the subtree and raising the limit,
+which moves by at most 4 per change.
+
+```sh
+memora exec --input '{"mutation":{"expected_schema_version":1,"max_affected_rows":1,"actor":"agent:host","source":"conversation:event-7","reason":"new semantic leaf"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L2"}}' "CREATE ROUTE UNDER :parent NAME 'agent-loop' KIND 'leaf' PURPOSE 'Agent loop decisions'"
+``` Before attaching a new Row, verify that every target leaf is empty;
 an occupied leaf requires a new semantic leaf, while the same Row may still use
 multiple distinct leaves. Submit the plan through `mutate` so
 Policy validation occurs before any Tool call and multi-step changes share one
 short transaction.
 
 ```sh
-memora exec --input '{"parameters":{"named":{"row":"row_01","summary":"Route results are locators only"}},"mutation":{"expected_schema_version":1,"expected_revision":2,"max_affected_rows":1,"route_leaf_ids":["route_query"],"actor":"agent:host","source":"conversation:event-7","reason":"refine verified conclusion"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "UPDATE work.notes SET summary = :summary WHERE row_id = :row"
+memora exec --input '{"parameters":{"named":{"row":"row_01","summary":"<complete self-contained ~1,000-CJK-character Markdown document; abbreviated in this example>"}},"mutation":{"expected_schema_version":1,"expected_revision":2,"max_affected_rows":1,"route_leaf_ids":["route_query"],"actor":"agent:host","source":"conversation:event-7","reason":"refine verified conclusion"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "UPDATE work.notes SET summary = :summary WHERE row_id = :row"
 memora mutate --plan '{"version":"memora.mutation-plan/v1","id":"plan-7","decision":"IGNORE","database":"work","table":"notes","actor":"agent:host","source_event_id":"conversation:event-7","reason":"existing Row already captures it","authorized_databases":["work"],"preflight":[{"id":"duplicate-check","msql":"SELECT row_id, revision FROM work.notes WHERE row_id = :row LIMIT 1","input":{"parameters":{"named":{"row":"row_01"}}},"expect_rows":1}],"steps":[],"verify":[]}'
 ```
 
@@ -334,6 +425,17 @@ unit. Express RELATE endpoints as reviewed module IDs in the `source` and
 by those module plans. Bind every important number or other key fact separately to its module,
 field, value SHA-256, and exact anchor. Do not copy source windows or quotations
 into the submission merely to support review.
+
+Each semantic module's `summary` is a complete, self-contained Markdown
+document of roughly 1,000 CJK characters — the full rendered body the reader
+should see, not a compressed extract or a few bullet points. Configure the
+summary Column's TEXT limit (e.g. `TEXT(2500)`) to hold the document plus
+Markdown syntax; the 1200-character default ceiling is too small for a
+1,000-CJK-character body. Length is counted in Unicode code points, so Markdown
+headers, list markers, and code blocks consume the same budget as CJK text.
+Never silently truncate: if the ceiling is too low, submit a Schema change to
+widen the summary Column before writing, and write the document to match the
+configured budget.
 
 Run a second pass as `memora.assimilation-review/v1`. It may use another Agent,
 or the same Agent with a context ID isolated from the draft. It must bind the
@@ -468,6 +570,37 @@ approved any broad or destructive change.
 ```sh
 memora maintain --report
 ```
+
+### Route branch fan-out
+
+One root or branch may carry at most `branch_fanout` live children. The startup
+default is 12 and each Database owns its own value:
+
+```sh
+memora query --input '{"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW CONFIGURATION ROUTE_POLICY"
+```
+
+Exceeding it is not a warning and is never paginated away: the write fails with
+`constraint_violation` and `details.reason = route_branch_fanout_exceeded`,
+carrying `parent_route_id`, `live_children`, `branch_fanout`, and two executable
+remedies. Choose between them yourself; do not retry the same write.
+
+1. `restructure_subtree` — the crowded parent has no clear grouping left, and the
+   new node belongs inside an existing child, or the children should be regrouped.
+   Use the Route mutation proposal flow below.
+2. `raise_branch_fanout` — the domain genuinely has more sibling groups than the
+   current limit, and merging them would lose a real distinction. Raise this
+   Database's limit with an expected revision, actor, and reason:
+
+```sql
+ALTER CONFIGURATION ROUTE_POLICY SET BRANCH_FANOUT :fanout
+```
+
+Prefer restructuring when the crowded children share an obvious parent concept;
+prefer raising the limit when they are genuinely parallel and already
+distinguishable by name and purpose alone. Lowering the limit never invalidates
+an existing tree — it only refuses further growth — so a Database that already
+sits above its limit stays readable and maintainable.
 
 For a local Router split, merge, or move, inspect the exact current nodes and leaf
 locators first. Express the semantic names, purposes, source revisions, and complete
