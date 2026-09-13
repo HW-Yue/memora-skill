@@ -264,20 +264,26 @@ from large to small scope and only create when reuse is impossible:
    syntax (for example `TEXT(2500)`; the 1,200 default is too small). A Table
    without a `summary` Column cannot hold a displayable Row. Declare
    `ROLE 'title'` as well when the Table needs a short label.
+7. After creating a new Table, bootstrap its Router root and at least one
+   empty leaf before the first Row write. A Table that holds Rows but has no
+   semantic index is a failed write, not a deferred task.
 
 ## Write
 
 Within the user's authorized scope, use:
 
 ```text
-Discover → query existing rows → plan → validate → execute → verify
+Discover → query existing rows → establish empty Route leaf
+→ plan with non-empty route_leaf_ids → validate → execute
+→ OPEN ROUTE + SELECT verify
 ```
 
 Choose IGNORE, INSERT, REVISE, MERGE, SPLIT, MOVE, or RELATE before generating
 MSQL. Prefer revising an existing semantic module over appending a duplicate.
 Use parameters, expected schema/revision, a maximum affected-row count, actor,
 source, reason, and the complete current Route leaf membership snapshot.
-Keep transactions short and verify the returned revision and logical row.
+Keep transactions short and verify the returned revision, logical row, and
+Route membership.
 
 Every INSERT and every UPDATE that creates or replaces a semantic module MUST
 write the `summary` Column. `summary` is the Row's body: a complete,
@@ -289,14 +295,47 @@ empty to "fill in later". If the configured TEXT ceiling cannot hold the
 document, submit a Schema change to widen the Column first (see
 "Evolve schemas"); never silently truncate.
 
+### Hard gate: new knowledge requires a semantic index
+
+Writing new information and establishing its semantic index are one unit of
+work. A new Row that is not attached to at least one empty Route leaf cannot
+be reached by semantic navigation, so it is not a legal write.
+
+Before any INSERT, WRITE, or SPLIT-created Row is submitted, the host MUST:
+
+1. Confirm the Table has a Router root, or create that root at L2.
+2. Confirm every target leaf exists, is a `leaf`, and `OPEN ROUTE` shows it
+   empty. Create a new leaf at L2 when none is free.
+3. Put those leaf IDs in `mutation.route_leaf_ids` and in the matching
+   Mutation Plan snapshot. The field is mandatory and must contain at least
+   one leaf.
+
+If any check fails, stop. Do not call `exec` or `mutate` for the Row. Treat
+the attempt as a hard error: report that the semantic index is missing and
+refuse the write. Do not write the Row first and index it later. Do not omit
+`route_leaf_ids`, pass `null`, or pass `[]`. Do not treat an `unrouted Row`
+maintenance finding as permission to persist knowledge without a leaf.
+
+The engine must reject a new-Row write that lacks a usable semantic index.
+Expect `constraint_violation` with `details.reason = semantic_index_required`.
+That rejection is the gate working, not a reason to retry the same write,
+drop `route_leaf_ids`, or lower the requirement. Hosts must raise the same
+error locally even before a Tool call.
+
+REVISE, MERGE, and MOVE of an existing module do not create a new Row, but
+they still supply the complete non-empty current `route_leaf_ids` snapshot.
+Clearing membership to an empty array is the same hard error.
+
+After a committed new-Row write, `OPEN ROUTE` on each attached leaf must
+return that Row's locator, and `SELECT` of the Row must show matching
+`route_paths`. Missing membership means the write failed: report the error
+and do not claim success.
+
 Build one `memora.mutation-plan/v1` object. Every decision includes at least one
 read-only preflight with explicit Row expectations. IGNORE has no steps. INSERT,
 REVISE, MOVE, and RELATE have one step; MERGE is one UPDATE plus DELETE steps;
 SPLIT is one UPDATE plus INSERT steps. Keep at most eight steps. Every INSERT or
 UPDATE supplies the complete `route_leaf_ids` snapshot with at least one leaf.
-A Row with no Route membership can never be reached by semantic navigation, so
-an empty array is not a valid snapshot: attach an existing empty leaf, or create
-the leaf first.
 
 ### Create the Route leaf you are about to write into
 
@@ -363,7 +402,8 @@ hold a new Row.
 
 Before attaching a new Row, verify that every target leaf is empty;
 an occupied leaf requires a new semantic leaf, while the same Row may still use
-multiple distinct leaves. Submit the plan through `mutate` so
+multiple distinct leaves. If that leaf does not exist yet, create it first —
+never submit the Row write without it. Submit the plan through `mutate` so
 Policy validation occurs before any Tool call and multi-step changes share one
 short transaction.
 
@@ -417,8 +457,9 @@ memora decide --decision '{"version":"memora.worthiness-decision/v1","decision_i
 ```
 
 IGNORE requires the verified ignored receipt from an IGNORE Mutation Plan.
-WRITE requires a committed, verified INSERT receipt; REVISE requires a
-committed, verified REVISE receipt. WRITE/REVISE also name the authorized
+WRITE requires a committed, verified INSERT receipt that already passed the
+semantic-index hard gate; REVISE requires a committed, verified REVISE
+receipt with a non-empty membership snapshot. WRITE/REVISE also name the authorized
 Database/Table and the exact Row ID/revision returned by one matching change.
 Never fabricate a Mutation Receipt and never finalize from
 `committed_unverified`; resolve verification first.
@@ -458,7 +499,10 @@ delete or modify the user's source file.
 
 Build one `memora.assimilation-submission/v1` only after coverage completes.
 Represent each complete, independently editable semantic module with its normal
-Mutation Plan; represent structure only with RELATE Plans. Bind every module and
+Mutation Plan; represent structure only with RELATE Plans. Every module INSERT
+or SPLIT in the submission is subject to the Write hard gate: each new Row
+must already have its empty leaf and a non-empty `route_leaf_ids` snapshot. A
+submission that would write unindexed Rows is invalid; do not send it. Bind every module and
 relationship to at least one short source anchor inside a readable inventory
 unit. Express RELATE endpoints as reviewed module IDs in the `source` and
 `target` parameters; Memora replaces them with the verified object IDs returned
@@ -552,6 +596,10 @@ to remember it, before a host compaction checkpoint, or when the host can signal
 session end. Do not assume a hidden lifecycle hook and do not invoke it after
 every message. Mark greetings, transient reasoning, and duplicates as `ignore`;
 attach one validated Mutation Plan to at most one `persist` delta per event.
+A `persist` plan must pass the same semantic-index hard gate as an ordinary
+write. A persist that would create an unrouted Row is a hard error: restore
+the missing leaf first, or mark the delta `ignore`. Never persist without
+membership.
 
 Use a host-stable `event_id`, session ID, workspace, and authorized Database set.
 The Mutation Plan provenance must equal the event ID and cannot expand that
@@ -707,6 +755,8 @@ Required Notice: Copyright 2026 HW-Yue. Commercial use requires a separate paid 
 
 After a mutation, return a receipt under 2,000 characters with the logical
 objects changed, action, revision/commit sequence, reason/source, verification
-result, warnings, truncation, and any required follow-up. After a read, cite the
+result, warnings, truncation, Route leaf IDs, and any required follow-up. A
+new-Row write with no verified semantic index is a failure, not a partial
+success. After a read, cite the
 database/table/Row IDs used and distinguish missing data from denied or truncated
-data. Never claim success from an error envelope or incomplete source coverage.
+data. Never claim success from an error envelope, a missing semantic index, or incomplete source coverage.

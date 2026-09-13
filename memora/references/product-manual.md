@@ -88,13 +88,20 @@ Row 可以挂在多个语义 Leaf；正文只保存一份。
 短文本或对话陈述按以下顺序处理：
 
 ```text
-capture pending → 发现现有 Row → IGNORE / INSERT / REVISE / MERGE / SPLIT / MOVE / RELATE
-→ 生成 hash-bound Mutation Plan → Policy preflight → 短事务 MSQL 提交
-→ SELECT 回读 → 检查 Row revision、Relation、Route membership → decide / receipt
+capture pending → 发现现有 Row → 确认或 CREATE ROUTE 空 leaf
+→ IGNORE / INSERT / REVISE / MERGE / SPLIT / MOVE / RELATE
+→ 生成带非空 route_leaf_ids 的 hash-bound Mutation Plan
+→ Policy preflight → 短事务 MSQL 提交
+→ OPEN ROUTE + SELECT 回读 → 检查 Row revision、Relation、Route membership
+→ decide / receipt
 ```
 
-所有写入都必须带 expected schema/revision、授权 scope、最大影响行数和完整 Route
-membership snapshot。已占用 Leaf 不能再挂第二个 Row；需要新语义叶或局部 Branch 调整。
+写入新信息和建立语义索引是同一件事，不能拆开事后补。INSERT / WRITE /
+SPLIT 新建的 Row 必须先有空的 Route leaf，并在同一次写入里提交非空
+`route_leaf_ids`。缺少该字段、传 `null`、传 `[]`，或 Table 还没有 Router
+root / 空 leaf，都是硬失败：宿主不得提交，引擎返回
+`constraint_violation` / `semantic_index_required`。不允许先写 Row 再补
+索引。已占用 Leaf 不能再挂第二个 Row；需要新语义叶或局部 Branch 调整。
 语义冲突必须展示证据并请求用户裁决，不能由数据库或 Agent 静默选边。
 
 长文档、EPUB、DOCX、文本层 PDF 或 OCR 资料走 Assimilation：宿主解析为有序的临时

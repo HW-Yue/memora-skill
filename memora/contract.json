@@ -57,6 +57,14 @@
   ],
   "physical_access": "forbidden",
   "conflict_policy": "ask_user_before_mutation",
+  "write_policy": {
+    "semantic_index": "required",
+    "new_row_without_route_leaf": "reject",
+    "empty_route_leaf_ids": "reject",
+    "defer_index_after_write": "forbidden",
+    "reject_code": "constraint_violation",
+    "reject_reason": "semantic_index_required"
+  },
   "provider_boundary": {
     "owner": "host",
     "endpoint_policy": "host-configured",
