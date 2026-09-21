@@ -98,11 +98,13 @@ else
       [ -f "$source_dir/go.mod" ] || fail "source directory does not contain go.mod"
       (
         cd "$source_dir"
-        go build -trimpath -ldflags "-X main.version=$version -X main.commit=source -X main.builtAt=source" -o "$staged" ./cmd/memora
+        CGO_ENABLED=1 CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" \
+          go build -tags sqlite_fts5 -trimpath -ldflags "-X main.version=$version -X main.commit=source -X main.builtAt=source" -o "$staged" ./cmd/memora
       )
     else
       mkdir -p "$work_dir/go-bin"
-      GOBIN="$work_dir/go-bin" go install "github.com/HW-Yue/Memora/cmd/memora@v${version}"
+      GOBIN="$work_dir/go-bin" CGO_ENABLED=1 CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" \
+        go install "github.com/HW-Yue/Memora/cmd/memora@v${version}"
       cp "$work_dir/go-bin/memora" "$staged"
     fi
     chmod 755 "$staged"

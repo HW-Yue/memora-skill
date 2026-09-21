@@ -9,10 +9,8 @@ Use this single source for stable host behavior. It targets `memora.msql.ast/v1`
 and consumes `memora.result/v1`. Keep live schemas, routes, candidates, and rows
 out of this file; discover them from the current instance for each task.
 
-Only use the `memora assimilate`, `memora capture`, `memora decide`, `memora doctor`, `memora query`, `memora exec`,
-`memora feedback`, `memora maintain`, `memora mutate`, `memora schema`, and
-`memora reflect` interfaces for normal database work. The approval-gated
-`upgrade` and `doctor repair` recovery commands below are the only exception.
+Only use the `memora doctor`, `memora query`, `memora exec`,
+`memora mutate`, and `memora schema` interfaces for normal database work.
 Never inspect, edit, copy, or infer state from physical database, index, journal,
 page, or instance files. Logical MSQL results are the only source of database
 truth available to the host.
@@ -81,26 +79,6 @@ local source directory. Do not ask for sudo, change the install script, bypass
 checks finish. If offline without a local source tree and Go toolchain, report
 the recoverable blocker.
 
-## Upgrade or recover an Instance
-
-Never migrate or roll back an Instance implicitly. If a command reports
-`upgrade_required`, run only the read-only plan first:
-
-```sh
-memora upgrade --plan
-```
-
-Show the user the exact Instance ID, from/to versions, backup destination, and
-steps. Only after explicit approval may you run `memora upgrade --apply --yes`.
-Do not treat install consent as upgrade consent, and do not auto-approve because
-normal database work is blocked.
-
-If a migration journal reports an incomplete migration, show the journal-bound
-backup and ask separately before running `memora doctor repair --yes`. Do not
-choose an arbitrary backup or add `--backup` unless the user explicitly selected
-that verified absolute path. Upgrade apply and doctor repair must remain outside
-host-level implicit command permissions.
-
 ## Discover
 
 Start a new task or stale Route Frame with bounded discovery. Inspect databases,
@@ -140,57 +118,32 @@ memora query --input '{"parameters":{"named":{"cursor":"","limit":12}},"authoriz
 
 Use `memora.speculative-discovery/v2` when a new question can benefit from
 fewer model continuations. In the same model turn, dispatch independent bounded
-calls for one flat Catalog Atlas page, lexical Route candidates, an optional
-vector candidate query, and at
+calls for one flat Catalog Atlas page and at
 most two root Route prefetches from the current same-topic Route Frame. Run the
 independent calls in parallel when the host supports it; do not wait for a model
 decision between their millisecond-scale results.
 
 Use this profile for at most 32 exact authorized Databases. The Atlas page has
-at most 64 entries and 8,192 UTF-8 row JSON bytes. Across all
-predictors allow at most 8 candidates and 4,096 candidate UTF-8 bytes; when both
-Lexical and Vector run, allocate 4 candidates and 2,048 bytes to each. Prefetch
+at most 64 entries and 8,192 UTF-8 row JSON bytes. Prefetch
 at most two Table roots with at most 12 Routes each, issue at most 10 tool calls,
 and keep the total working context within 12,000 UTF-8 bytes. Record topic ID,
-exact calls, output bytes, truncation, each predictor snapshot/catalog revision
-and each root page snapshot. Keep different predictor snapshots separate and
-require their Catalog revisions to agree.
+exact calls, output bytes, truncation, catalog revision
+and each root page snapshot.
 
 Track Atlas snapshot, pages, entries seen, `complete`, and next cursor. If
 coverage is partial, follow the cursor without asking the model to choose a
 Database. Do not claim a cold Database/Table is absent until coverage is
-complete. A predictor may point to a Table outside the current Atlas page; use
-normal Router fallback while deterministic Atlas continuation remains available.
+complete.
 
-Always pass the lexical question as a parameter. Add Vector only when the host
-already has a normalized query vector and the exact generation space digest;
-split the global predictor budget before issuing either call. Missing encoder,
-unavailable/stale generation, zero hits, or a failed prefetch are normal
-navigation outcomes, not query failures.
+Locate Rows with `SHOW ROUTES` (the Agent's main path) and `SELECT` for facts.
+Keyword and vector recall are additional product paths still to implement.
+jev is an optional Skill-side chooser on the same layer-by-layer surface.
 
-```sh
-memora query --input '{"parameters":{"named":{"lexical_query":"crash recovery","lexical_limit":8,"lexical_bytes":4096}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW ROUTE CANDIDATES FROM ALL TABLES USING LEXICAL :lexical_query LIMIT :lexical_limit BYTES :lexical_bytes"
-```
+Treat Route results as `navigation_only`. They are neither answers nor evidence.
+Explicitly choose one or more Tables from the compact Atlas. For a selected
+Table, issue the ordinary Router root and continue the normal layer-by-layer
+state machine.
 
-`SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query` is the full-content inverted index: it returns every object matching the query in one bounded page, with `kind` one of `database | table | column | route | row`. Use it when a keyword must locate both the semantic index (route) and a concrete Row, instead of the route-only `SHOW ROUTE CANDIDATES`. A Row hit returns `database_id/table_id/object_id/revision`; follow it with `SELECT ... WHERE row_id = :row` to read the Row, whose own `route_paths` already carries its semantic path, so membership need not be reverse-resolved.
-
-```sh
-memora query --input '{"parameters":{"named":{"query":"crash recovery","location_limit":10,"utf8_byte_limit":8192}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW LEXICAL LOCATIONS FROM ALL TABLES USING :query LIMIT :location_limit BYTES :utf8_byte_limit"
-```
-
-Treat every Discovery candidate and prefetched Route as `navigation_only`.
-They are neither answers nor evidence, and scores with different kinds are not
-comparable. Explicitly choose one or more Tables from the compact Atlas; a
-zero-hit Table remains selectable, and partial Atlas coverage is never an
-exclusion filter. Reuse a prefetched root only when
-its topic, Table, Catalog revision, page snapshot and Route revisions are still
-current. For a selected Table without a valid prefetch, issue the ordinary Router root fallback
-and continue the normal layer-by-layer state machine.
-
-Discard the speculative Frame when the question has a different topic, a
-revision is stale, the context ceiling is crossed, or the task ends. A wrong
-prediction may waste bounded context but must never exclude a Table, widen
-authorization, persist in a system prompt, or change the visible Row set.
 Answer only from revision-matched SELECT rows after normal Route navigation and
 RowID lookup.
 
@@ -202,7 +155,7 @@ until a leaf is reached. Every leaf locates at most one active Row, and
 `OPEN ROUTE` returns only that Row's locator; never answer from the locator.
 Select projected semantic fields by Row ID, then summarize only the returned
 Row. Every SELECT Row already carries its own `route_paths` — the full
-semantic-index paths of the leaves that locate it — so the host need not
+semantic-index path of the single leaf that locates it — so the host need not
 reverse-resolve membership after the fact. Report empty, stale, or
 permission-limited results instead of inventing a fallback.
 
@@ -243,6 +196,98 @@ change the answer. Cite `database.table`, Row ID, revision, and available source
 anchor for every factual summary. Distinguish “no matching Row,” “truncated,”
 “stale during SELECT,” and “permission denied.”
 
+## Recall a position you cannot name
+
+`SHOW ROUTES` walks down from a node you already chose. When you cannot name that
+node, recall answers the other question: **where in the semantic tree does this
+topic live?** It is a locator, not an answer — it returns no fact, no score, no
+distance, no rank, no reason, and not the text it matched.
+
+```sh
+memora query --input '{"parameters":{"named":{"q":"存储引擎","limit":5}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "RECALL FROM work MATCH :q LIMIT 5"
+memora query --input '{"parameters":{"named":{"q":"存储引擎","limit":5}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "RECALL FROM work IN notes MATCH :q LIMIT 5"
+```
+
+Each hit carries `database`, `table`, `kind`, an optional `object_id`, and `path`
+— the root-first segments, each with the `route_id` navigation needs. Continue
+exactly as after discovery: `OPEN ROUTE` the last segment, then `SELECT` the fact.
+Recall never prefetches: it does not open the leaf, cache the row, or substitute
+for the `SELECT` that produces the answer.
+
+A recall may come back with a `vectors_not_ready` warning. It is not an error:
+it says how many units in the scope no vector path can answer for yet, so the
+paths you got are real but the list may be incomplete. Read `not_ready_units`
+(and `identity_locked`, which separates “nobody configured embeddings” from
+“some units went stale”) and say so instead of presenting the result as
+exhaustive. Do not retry hoping for more — `RECALL` never waits for embeddings;
+`memora doctor` reports the same count for the whole instance.
+
+If you already hold the vector for exactly what you are about to write, you can
+attach it to the write itself (`mutation.vector`, alongside `route_path`) and it
+lands in the same transaction. The `content_hash` must be the hash of the text
+you embedded: the engine recomputes it from what the Row actually holds, refuses
+a mismatch, and writes the Row anyway — a warning on the result says the unit is
+still not-ready, which is the difference between a lost vector and a silent one.
+
+If this host has an embedding provider configured, `memora exec` already does the
+draining for you: after a write commits it asks what units are missing vectors,
+embeds them, and offers the vectors back — a failure there never fails the write,
+and it says so on stderr. What follows is the manual path for when you compute
+embeddings yourself.
+
+If you compute embeddings yourself, drain the backlog in three steps: ask what is
+missing, embed the text each unit hands you, then offer each vector back.
+
+```sh
+memora query --input '{"parameters":{"named":{"limit":32}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW PENDING VECTORS IN DATABASE work LIMIT :limit"
+```
+
+`SHOW PENDING VECTORS` returns `unit_no`, `table`, `content_hash` and `payload` —
+the work list, not an answer: it is what makes a backlog drainable even when the
+Rows were written by someone else. Embed `payload`, then offer the vector back:
+
+If you compute embeddings yourself, you can offer one to a unit — that is how a
+backlog gets drained, one statement per unit, as many statements as you like in
+one request:
+
+```sh
+memora exec --input '{"parameters":{"named":{"v":"<base64>","unit":42,"model":"text-embedding-v4","hash":"sha256:..."}},"mutation":{"max_affected_rows":1,"actor":"agent:host","source":"conversation:event-9","reason":"attach embedding"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "ACCEPT VECTOR :v FOR UNIT :unit IN DATABASE work MODEL :model HASH :hash"
+```
+
+`HASH` is the hash of the text you embedded, not of the Row: the engine recomputes
+it and refuses a mismatch, so an embedding of a previous revision cannot land on
+the current one. A unit the engine has no vector for simply stays not-ready —
+`RECALL` reports it, and nothing pretends it was attached.
+
+When you already have a query embedding — for instance the one you just computed
+for the text the user asked about — you can search by position instead of words:
+`RECALL FROM <db> [IN <table>] NEAREST :v LIMIT :n`. The vector travels as
+**base64 (raw URL-safe) of little-endian float32, no padding**, and must match the
+Database's locked width; a vector of the wrong width, or one carrying NaN, is
+refused rather than rounded. The answer has exactly the same shape as a keyword
+recall — so navigate the same way — and `LIMIT` means the same thing in both:
+it truncates the listing, it is not a recall strength. Asking for both arms at
+once (`MATCH :q NEAREST :v`) merges what each found, counts a position found
+twice once, and still truncates by that same rule; if either arm cannot answer,
+the statement fails rather than quietly returning the half it could.
+
+The vector index is derived from the units, and you can reconcile it without
+guessing: a bounded pass repairs index rows so they hold exactly what the units
+hold. It never recomputes a vector — a unit whose text moved on is stale, not
+broken — so repeating it until `remaining` is zero is safe.
+
+```sh
+memora exec --input '{"parameters":{"named":{"limit":64}},"mutation":{"max_affected_rows":64,"actor":"agent:host","source":"conversation:event-9","reason":"reconcile the vector index"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "REPAIR VECTOR INDEX IN DATABASE work LIMIT :limit"
+```
+
+`LIMIT` is required and bounded to 1–1000; the query must be at least 3
+characters, and a shorter one is refused rather than silently returning nothing.
+Hits are de-duplicated by path and ordered by table then path, so the same query
+over an unchanged database returns the same list. Scope is one Database, with an
+optional `IN <table>`. Today the lexical path is the only one wired; when a
+position exists but no hit returns, treat it as "not matched", never as "the tree
+has nothing there", and always report the query you used.
+
 ## Decide where knowledge lives
 
 Before persisting a new piece of knowledge, decide where it belongs. Decide
@@ -264,26 +309,20 @@ from large to small scope and only create when reuse is impossible:
    syntax (for example `TEXT(2500)`; the 1,200 default is too small). A Table
    without a `summary` Column cannot hold a displayable Row. Declare
    `ROLE 'title'` as well when the Table needs a short label.
-7. After creating a new Table, bootstrap its Router root and at least one
-   empty leaf before the first Row write. A Table that holds Rows but has no
-   semantic index is a failed write, not a deferred task.
 
 ## Write
 
 Within the user's authorized scope, use:
 
 ```text
-Discover → query existing rows → establish empty Route leaf
-→ plan with non-empty route_leaf_ids → validate → execute
-→ OPEN ROUTE + SELECT verify
+Discover → query existing rows → plan → validate → execute → verify
 ```
 
-Choose IGNORE, INSERT, REVISE, MERGE, SPLIT, MOVE, or RELATE before generating
+Choose IGNORE, INSERT, REVISE, MERGE, SPLIT, or MOVE before generating
 MSQL. Prefer revising an existing semantic module over appending a duplicate.
 Use parameters, expected schema/revision, a maximum affected-row count, actor,
 source, reason, and the complete current Route leaf membership snapshot.
-Keep transactions short and verify the returned revision, logical row, and
-Route membership.
+Keep transactions short and verify the returned revision and logical row.
 
 Every INSERT and every UPDATE that creates or replaces a semantic module MUST
 write the `summary` Column. `summary` is the Row's body: a complete,
@@ -295,47 +334,15 @@ empty to "fill in later". If the configured TEXT ceiling cannot hold the
 document, submit a Schema change to widen the Column first (see
 "Evolve schemas"); never silently truncate.
 
-### Hard gate: new knowledge requires a semantic index
-
-Writing new information and establishing its semantic index are one unit of
-work. A new Row that is not attached to at least one empty Route leaf cannot
-be reached by semantic navigation, so it is not a legal write.
-
-Before any INSERT, WRITE, or SPLIT-created Row is submitted, the host MUST:
-
-1. Confirm the Table has a Router root, or create that root at L2.
-2. Confirm every target leaf exists, is a `leaf`, and `OPEN ROUTE` shows it
-   empty. Create a new leaf at L2 when none is free.
-3. Put those leaf IDs in `mutation.route_leaf_ids` and in the matching
-   Mutation Plan snapshot. The field is mandatory and must contain at least
-   one leaf.
-
-If any check fails, stop. Do not call `exec` or `mutate` for the Row. Treat
-the attempt as a hard error: report that the semantic index is missing and
-refuse the write. Do not write the Row first and index it later. Do not omit
-`route_leaf_ids`, pass `null`, or pass `[]`. Do not treat an `unrouted Row`
-maintenance finding as permission to persist knowledge without a leaf.
-
-The engine must reject a new-Row write that lacks a usable semantic index.
-Expect `constraint_violation` with `details.reason = semantic_index_required`.
-That rejection is the gate working, not a reason to retry the same write,
-drop `route_leaf_ids`, or lower the requirement. Hosts must raise the same
-error locally even before a Tool call.
-
-REVISE, MERGE, and MOVE of an existing module do not create a new Row, but
-they still supply the complete non-empty current `route_leaf_ids` snapshot.
-Clearing membership to an empty array is the same hard error.
-
-After a committed new-Row write, `OPEN ROUTE` on each attached leaf must
-return that Row's locator, and `SELECT` of the Row must show matching
-`route_paths`. Missing membership means the write failed: report the error
-and do not claim success.
-
 Build one `memora.mutation-plan/v1` object. Every decision includes at least one
 read-only preflight with explicit Row expectations. IGNORE has no steps. INSERT,
-REVISE, MOVE, and RELATE have one step; MERGE is one UPDATE plus DELETE steps;
+REVISE, and MOVE have one step; MERGE is one UPDATE plus DELETE steps;
 SPLIT is one UPDATE plus INSERT steps. Keep at most eight steps. Every INSERT or
-UPDATE supplies the complete `route_leaf_ids` snapshot with at least one leaf.
+UPDATE supplies the complete `route_leaf_ids` snapshot naming exactly one leaf:
+a Row occupies exactly one Leaf, and a Leaf holds at most one live Row.
+A Row with no Route membership can never be reached by semantic navigation, so
+an empty array is not a valid snapshot: attach an existing empty leaf, or create
+the leaf first.
 
 ### Create the Route leaf you are about to write into
 
@@ -400,145 +407,33 @@ This bootstrap is ordinary Router construction, not a Route mutation plan.
 it cannot create the first root, and it is not the path for adding a leaf to
 hold a new Row.
 
-Before attaching a new Row, verify that every target leaf is empty;
-an occupied leaf requires a new semantic leaf, while the same Row may still use
-multiple distinct leaves. If that leaf does not exist yet, create it first —
-never submit the Row write without it. Submit the plan through `mutate` so
+### Or name the path and let the kernel complete it
+
+An INSERT may carry `route_path` instead of `route_leaf_ids`: one entry per
+segment, each with its own `name`, `kind` and `purpose`. The kernel reuses the
+segments that already exist and creates the ones that do not, in the same
+transaction as the Row. The two options are mutually exclusive, and `route_path`
+is accepted by INSERT only.
+
+```sh
+memora exec --input '{"parameters":{"named":{"title":"Use SQLite"}},"mutation":{"expected_schema_version":1,"max_affected_rows":1,"route_path":[{"name":"architecture","kind":"branch","purpose":"Architecture decisions"},{"name":"sqlite","kind":"leaf","purpose":"Why SQLite"}],"actor":"agent:host","source":"conversation:event-7","reason":"record the decision"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "INSERT INTO work.notes (title) VALUES (:title)"
+```
+
+Sibling names match case-insensitively and never by alias. Expect a refusal when
+the Table has no root yet (create it explicitly — its purpose is table-level
+semantics), when an interior segment is a leaf, when the last segment is a
+branch, when the leaf exists under a different purpose, or when it already holds
+a live Row. Nothing is created unless the whole write commits.
+
+Before attaching a new Row, verify that the target leaf is empty;
+an occupied leaf requires a new semantic leaf, because a Row occupies exactly one
+leaf and cannot also be reached through a second one. Submit the plan through `mutate` so
 Policy validation occurs before any Tool call and multi-step changes share one
 short transaction.
 
 ```sh
 memora exec --input '{"parameters":{"named":{"row":"row_01","summary":"<complete self-contained ~1,000-CJK-character Markdown document; abbreviated in this example>"}},"mutation":{"expected_schema_version":1,"expected_revision":2,"max_affected_rows":1,"route_leaf_ids":["route_query"],"actor":"agent:host","source":"conversation:event-7","reason":"refine verified conclusion"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "UPDATE work.notes SET summary = :summary WHERE row_id = :row"
 memora mutate --plan '{"version":"memora.mutation-plan/v1","id":"plan-7","decision":"IGNORE","database":"work","table":"notes","actor":"agent:host","source_event_id":"conversation:event-7","reason":"existing Row already captures it","authorized_databases":["work"],"preflight":[{"id":"duplicate-check","msql":"SELECT row_id, revision FROM work.notes WHERE row_id = :row LIMIT 1","input":{"parameters":{"named":{"row":"row_01"}}},"expect_rows":1}],"steps":[],"verify":[]}'
-```
-
-## Capture pending host input
-
-Before deciding whether a new short user assertion or bounded source excerpt is
-worth a database mutation, capture it as one `memora.host-input/v1`. Bind a
-stable input ID, workspace, actor, and the exact 1–32 user-authorized Database
-selectors. Keep `candidate_text` within 12,000 UTF-8 bytes. This auxiliary inbox
-is temporary handoff state, not a semantic Row, fact, History entry, or answer.
-
-Use `conversation_assertion` only without a locator or source hash. A
-`document_anchor` or `repository_anchor` requires both a bounded locator and the
-source content SHA-256. Never label capture as `reviewed_source`. Send a whole
-document, directory, media source, or multi-window task through `assimilate`
-instead of splitting it into Host Inputs.
-
-```sh
-memora capture --candidate '{"version":"memora.host-input/v1","input_id":"input-12","workspace":"project-memora","actor":"agent:host","authorized_databases":["work"],"candidate_text":"Router results are locators, not facts.","source":{"kind":"conversation_assertion","title":"Router boundary"}}'
-```
-
-Require `memora.host-input-receipt/v1`, `status=pending`, and matching input,
-content, and scope hashes. The capture receipt deliberately omits candidate
-text. After host restart or context loss, reload the exact pending candidate
-only with its workspace:
-
-```sh
-memora capture --receipt input-12 --workspace project-memora
-```
-
-An identical input ID/content replay is success; different content under the
-same ID is a hard revision conflict. `pending` proves only durable capture. Do
-not infer IGNORE/WRITE/REVISE or run MSQL from the receipt; the worthiness
-decision is a separate reviewed step.
-
-## Finalize worthiness
-
-After capture, use normal discovery and bounded queries to decide whether the
-candidate should be ignored, inserted as a new semantic module, or used to
-revise an existing Row. Express and execute that choice through a validated
-Mutation Plan first. Then finalize the pending input with one strict
-`memora.worthiness-decision/v1`:
-
-```sh
-memora decide --decision '{"version":"memora.worthiness-decision/v1","decision_id":"decision-12","input_id":"input-12","workspace":"project-memora","actor":"agent:host","input_sha256":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","scope_sha256":"sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","verdict":"IGNORE","reason":"preflight found the same semantic module","authorized_databases":["work"],"mutation_receipt":{"version":"memora.mutation-receipt/v1","plan_id":"plan-ignore-12","decision":"IGNORE","status":"ignored","changes":[],"ignored":1,"verified":true,"warnings":[]}}'
-```
-
-IGNORE requires the verified ignored receipt from an IGNORE Mutation Plan.
-WRITE requires a committed, verified INSERT receipt that already passed the
-semantic-index hard gate; REVISE requires a committed, verified REVISE
-receipt with a non-empty membership snapshot. WRITE/REVISE also name the authorized
-Database/Table and the exact Row ID/revision returned by one matching change.
-Never fabricate a Mutation Receipt and never finalize from
-`committed_unverified`; resolve verification first.
-
-Require `memora.worthiness-receipt/v1` and `status=finalized`. It omits the
-candidate text. After restart, reload the stable decision with:
-
-```sh
-memora decide --receipt decision-12 --workspace project-memora
-```
-
-The engine verifies receipt shape and capture binding, not semantic truth. A
-finalized WRITE/REVISE refers to the preceding MSQL mutation; the decision API
-does not write Rows itself.
-
-## Assimilate sources
-
-Treat documents and media as temporary host input. Start one
-`memora.assimilation-event/v1` inventory with a source ID, bounded title/locator,
-content SHA-256, and parent-linked source, directory, chapter, page, table, and
-attachment units. Give each readable unit a normalized half-open extent; mark a
-unit optional only when omission is intentional. Do not place source text in a
-label, locator, anchor, event, or database Row.
-
-Read bounded windows and send only unit ID, `[start,end)`, and window SHA-256.
-Memora merges overlaps and treats an identical window as a no-op. Save an active
-unit, offset, bounded host cursor, and last window event before interruption.
-Use a `status` event after restart or context loss to recover the checkpoint and
-unread ranges; do not depend on old chat history.
-
-Call `finish` only after inventory traversal. An `incomplete` receipt is a hard
-failure: continue from its unread ranges and never report successful absorption.
-`coverage_complete` means only that F36 review and semantic submission may
-begin; it does not mean knowledge was written. After a successful later commit
-or explicit cancellation, call `clear` to remove temporary Memora state. Never
-delete or modify the user's source file.
-
-Build one `memora.assimilation-submission/v1` only after coverage completes.
-Represent each complete, independently editable semantic module with its normal
-Mutation Plan; represent structure only with RELATE Plans. Every module INSERT
-or SPLIT in the submission is subject to the Write hard gate: each new Row
-must already have its empty leaf and a non-empty `route_leaf_ids` snapshot. A
-submission that would write unindexed Rows is invalid; do not send it. Bind every module and
-relationship to at least one short source anchor inside a readable inventory
-unit. Express RELATE endpoints as reviewed module IDs in the `source` and
-`target` parameters; Memora replaces them with the verified object IDs returned
-by those module plans. Bind every important number or other key fact separately to its module,
-field, value SHA-256, and exact anchor. Do not copy source windows or quotations
-into the submission merely to support review.
-
-Each semantic module's `summary` is a complete, self-contained Markdown
-document of roughly 1,000 CJK characters — the full rendered body the reader
-should see, not a compressed extract or a few bullet points. Configure the
-summary Column's TEXT limit (e.g. `TEXT(2500)`) to hold the document plus
-Markdown syntax; the 1200-character default ceiling is too small for a
-1,000-CJK-character body. Length is counted in Unicode code points, so Markdown
-headers, list markers, and code blocks consume the same budget as CJK text.
-Never silently truncate: if the ceiling is too low, submit a Schema change to
-widen the summary Column before writing, and write the document to match the
-configured budget.
-
-Run a second pass as `memora.assimilation-review/v1`. It may use another Agent,
-or the same Agent with a context ID isolated from the draft. It must bind the
-draft SHA-256 and coverage revision, check the exact module/relationship/key-fact
-ID sets, and explicitly verify anchors, key facts, conflicts, and absence of raw
-source content. If any semantic conflict remains, submit its ID and stop on
-`needs_user`; resolve it through the normal conflict flow before creating a new
-submission ID.
-
-Only `committed` in `memora.source-receipt/v1` means absorption succeeded. An
-`in_doubt` submission may have partially committed: query the affected logical
-Rows and revisions, then recover with a new submission instead of replaying the
-old write. Reload compact provenance with `memora assimilate --receipt <id>`.
-After committed, send an explicit coverage `clear` event; the Source Receipt
-survives while the temporary inventory, coverage, windows, and checkpoint do not.
-
-```sh
-memora assimilate --event '{"version":"memora.assimilation-event/v1","event_id":"book-status-2","task_id":"book-task","workspace":"project-memora","kind":"status"}'
-memora assimilate --receipt book-submit-1
 ```
 
 ## Evolve schemas
@@ -585,39 +480,6 @@ receipt directly. A destructive plan containing DROP has no automatic
 compensation proposal because History values must not be presented as an
 ordinary reversible Schema action.
 
-```sh
-memora schema --plan '{"version":"memora.schema-plan/v1","id":"schema-8","actor":"agent:host","source_event_id":"conversation:event-8","reason":"new durable project domain","authorized_databases":["work"],"ensure":{"database":{"name":"work","purpose":"Project knowledge","scope":"Reviewed projects"},"database_synonyms":["projects"],"table":{"name":"notes","purpose":"Durable decisions","row_semantics":"One reviewed decision","columns":[{"name":"title","type":"TEXT(200)","nullable":false,"purpose":"Decision title"}]},"table_synonyms":["decisions"]}}'
-```
-
-## Reflect conversation deltas
-
-Call `memora reflect` explicitly when a stable conclusion is ready, the user asks
-to remember it, before a host compaction checkpoint, or when the host can signal
-session end. Do not assume a hidden lifecycle hook and do not invoke it after
-every message. Mark greetings, transient reasoning, and duplicates as `ignore`;
-attach one validated Mutation Plan to at most one `persist` delta per event.
-A `persist` plan must pass the same semantic-index hard gate as an ordinary
-write. A persist that would create an unrouted Row is a hard error: restore
-the missing leaf first, or mark the delta `ignore`. Never persist without
-membership.
-
-Use a host-stable `event_id`, session ID, workspace, and authorized Database set.
-The Mutation Plan provenance must equal the event ID and cannot expand that
-authorization. Retrying identical content returns the stored receipt without a
-Tool call; reusing an ID for different content is a revision conflict. An event
-left in progress by interruption is in doubt and requires recovery instead of a
-blind retry. A `needs_context` receipt means the host must restore the missing
-Database or plan before writing.
-
-Checkpoint events store only active Database, Route path, and last event ID;
-they replace the same session's prior checkpoint during project switches.
-Session-end events explicitly clear it. Never put raw conversation text in the
-event journal or checkpoint.
-
-```sh
-memora reflect --event '{"version":"memora.conversation-event/v1","event_id":"checkpoint-9","session_id":"host-session-2","kind":"checkpoint","workspace":"project-memora","authorized_databases":["work"],"checkpoint":{"active_database":"work","route_path":"/architecture","last_event_id":"event-8"}}'
-```
-
 ## Request the user
 
 Ask the user before any semantic-conflict mutation. Build a temporary
@@ -633,31 +495,50 @@ IGNORE Plan, `REWRITE` to a REVISE Plan for the displayed Row/revision, and
 `REMOVE` to a MERGE Plan that updates one displayed survivor and logically
 deletes only the selected displayed Rows. Bind Database/Table, actor, reason,
 authorization, step targets, and expected revisions to the conflict view. Run
-the resulting Plan through normal Policy and `reflect`/`mutate`; refresh the
+the resulting Plan through normal Policy and `mutate`; refresh the
 view on a revision conflict. Never expand permission, modify an unshown Row,
 create a database-level candidate/disputed state, or silently pick a winner.
 
 Also ask before irreversible, privacy-reducing, permission-expanding, or broadly
 destructive operations.
 
-## Maintain semantic health
+## Recover an archived deletion
 
-Run `memora maintain --report` only when the user asks or at an explicit
-conversation checkpoint; do not assume a hidden hook or scan after every turn.
-Treat `memora.semantic-health/v2` issues as deterministic structural candidates, not facts.
-Route capacity, ambiguity, structure, membership, unrouted Row, duplicate Row, synonymous Column,
-and stale description findings are review-only; never infer the correct semantic placement from a scan.
-SELECT duplicate Rows before proposing MERGE, inspect synonymous fields before a
-Schema plan, and request review before Router splits or description rewrites.
-
-Semantic-health findings are review-only in v2. Do not submit a maintenance
-mutation for them automatically. Use the normal Schema, Router, or Row mutation
-flow after the AI has inspected the affected logical objects and the user has
-approved any broad or destructive change.
+A DELETE removes the Row, the leaf it occupied, its history and both ends of its
+links. The engine writes one archive record first, and rebuilding from it is your
+work, not the engine's.
 
 ```sh
-memora maintain --report
+memora query --input '{"parameters":{"named":{"row":"row_01","limit":10}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "SHOW ARCHIVE FROM work.notes FOR ROW :row LIMIT :limit"
+memora query --input '{"parameters":{"named":{"archive":"archive_01"}},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L0"}}' "OPEN ARCHIVE :archive"
 ```
+
+`SHOW ARCHIVE` lists metadata only and requires both a Table scope and a LIMIT;
+`OPEN ARCHIVE` returns one record in full — the path root-first, and the Row as it
+was stored, including the links it carried. A deleted Row is unreachable
+everywhere else (`SELECT`, `SHOW HISTORY`, `AS OF`, `OPEN ROUTE`); the archive is
+the single exception, and `SELECT` cannot reach it either. Rebuild by recreating
+the path (`CREATE ROUTE`, or `route_path` on the INSERT) and mounting the new Row
+on its leaf. The archived IDs are a record of what was, not a promise it can be
+reused.
+
+## Drain the link repair queue
+
+Linking is two-sided and lazy repairs are queued rather than applied inline: a
+reshape queues the links that pointed at it, and an in-place write queues the
+summaries that describe it. Draining is an explicit, bounded write.
+
+```sh
+memora exec --input '{"parameters":{"named":{"limit":64}},"mutation":{"max_affected_rows":64,"actor":"agent:host","source":"conversation:event-9","reason":"drain link repairs"},"authorization":{"version":"memora.authorization/v2","actor":"agent:host","authorized_databases":["work"],"default_level":"L1"}}' "REPAIR LINKS IN DATABASE work LIMIT :limit"
+```
+
+`LIMIT` is the batch size and may not exceed `max_affected_rows`. The receipt
+reports how many endpoints were repaired, discarded (the queued condition no
+longer holds), and how many remain. A repair re-checks every entry before
+applying it and never queues a follow-up of its own, so repeating the statement
+until `remaining` is zero is safe.
+
+## Router mutations
 
 ### Route branch fan-out
 
@@ -720,29 +601,6 @@ Never translate plan actions into ad hoc CREATE/DELETE/UPDATE statements. Never 
 and re-hash a reviewed plan. A truncated scan, approval mismatch, or revision conflict
 requires a fresh inspection and new proposal; do not retry a stale plan.
 
-## Record feedback and revise
-
-Record useful, irrelevant, stale, wrong, or incomplete quality feedback against
-the exact displayed Database, Table, Row ID, and revision. A feedback event is
-an auditable quality signal only: it never runs MSQL or changes facts, History,
-indexes, or Route memberships.
-
-```sh
-memora feedback --event '{"version":"memora.feedback-event/v1","event_id":"feedback-10","kind":"wrong","actor":"agent:host","reason":"user says the summary is wrong","target":{"database":"work","table":"notes","row_id":"row_01","revision":2}}'
-```
-
-For stale, wrong, or incomplete feedback, re-SELECT the current Row and wait for
-an explicit user confirmation with a new source event. Submit either a normal
-revision Mutation Plan or an undo request in `memora.feedback-confirmation/v1`.
-Keep scope, actor, provenance, expected revision, and the feedback ID bound to
-the confirmation. Never mutate useful/irrelevant feedback or expand its scope.
-
-Logical undo uses RESTORE and appends a new `COMPENSATE` revision. It never
-deletes History or rewinds the current revision. Supply the expected schema and
-current revisions plus complete index and Route snapshots. If a confirmation is
-in doubt, inspect logical Row History before recovery; never blindly replay it.
-Only a verified `memora.feedback-confirmation-receipt/v1` establishes success.
-
 ## License
 
 Memora is free for uses allowed by the
@@ -755,8 +613,6 @@ Required Notice: Copyright 2026 HW-Yue. Commercial use requires a separate paid 
 
 After a mutation, return a receipt under 2,000 characters with the logical
 objects changed, action, revision/commit sequence, reason/source, verification
-result, warnings, truncation, Route leaf IDs, and any required follow-up. A
-new-Row write with no verified semantic index is a failure, not a partial
-success. After a read, cite the
+result, warnings, truncation, and any required follow-up. After a read, cite the
 database/table/Row IDs used and distinguish missing data from denied or truncated
-data. Never claim success from an error envelope, a missing semantic index, or incomplete source coverage.
+data. Never claim success from an error envelope or incomplete source coverage.
