@@ -16,7 +16,8 @@
 ## 产品定位
 
 Memora 是本地、面向 AI Agent 的个人语义数据库。AI 是逻辑层的首要用户：它负责
-判断知识的语义、设计 Database/Table/Column、选择查询路径；Memora
+判断知识的语义、决定 Database 与 Table 的名字与描述、设计语义索引树、选择查询路径；
+**行的形状（Column）由引擎给定**——每张表都是同一个两列文档表——Memora
 引擎负责权限、类型、约束、事务、版本和物理存储。
 
 持久化的最小产品单位是可独立修改的完整语义 Row，而不是机械文档 chunk、聊天转录、
@@ -43,10 +44,11 @@ Memora daemon
   ├─ Logical authority
   │    ├─ Database → Table → Column / Row / Row History
   │    └─ Table Route：Branch → Leaf → 0..1 RowID
-  ├─ 导航
-  │    ├─ 语义索引（逐层 SHOW ROUTES，已实现）
-  │    ├─ 关键词召回（待实现）
-  │    └─ 向量召回（待实现）
+  ├─ 导航（四条路，均已实现）
+  │    ├─ 语义索引（逐层 SHOW ROUTES）
+  │    ├─ 关键词召回（RECALL … MATCH，二字滑窗索引）
+  │    ├─ 向量召回（RECALL … NEAREST，向量由宿主计算）
+  │    └─ Skill 层可选 jev
   └─ SQLite
        ├─ 普通表：Catalog、数据、history、语义配套、change
        ├─ 写串行，读看最后一次提交
@@ -131,6 +133,10 @@ Instance；若使用了可选 scope，再确认该 Database 名称或 ID 正确�
 每次首次使用先执行 `scripts/check.sh`：
 
 - `ready`：使用检测到的 `memora`，不重复安装；
+- `skewed`：CLI 与运行中的 daemon 是不同构建——daemon 才是回答语句的那个，先
+  `memora daemon stop` 再任意一条命令让 CLI 拉起匹配的 daemon，然后重跑检测；
+- `unknown`：daemon 完全答不上来，信封里有 `reason`（沙箱读不到实例锁文件是最常见的原因）。
+  当成"未验证"，不要当成"没问题"；若始终如此，就在答案里说明，而不是把读取结果说成已核验；
 - `missing`：向用户展示 Release 地址和默认安装位置，等待用户授权；
 - `unhealthy`：展示有限诊断，等待用户确认后才允许替换。
 
@@ -144,7 +150,7 @@ init、daemon start 和 doctor 检查，才能向用户报告安装成功。
 memora init --instance work
 memora daemon start --data-dir /absolute/instance
 memora doctor --data-dir /absolute/instance
-memora query --input '{...authorization...}' 'SHOW CATALOG ATLAS LIMIT 64'
+memora query --input '{...authorization...}' 'SHOW CATALOG ATLAS LIMIT 64 COMPACT'
 memora exec  --input '{...authorization...}' 'SELECT ...'
 ```
 
@@ -155,5 +161,6 @@ memora exec  --input '{...authorization...}' 'SELECT ...'
 
 - 当前发行提供 macOS arm64/amd64 制品、daemon、CLI、MCP、Skill、语义 Router、
   事务历史、Admin；具体版本以 `memora version --json` 为准。
-- 关键词召回、向量召回待实现。复制、PITR、多设备同步尚未作为默认能力。
+- 四条路（语义索引、关键词召回、向量召回、Skill 层 jev）都已实现；复制、PITR、
+  多设备同步尚未作为默认能力。
 - 任何不确定的事实都回到当前 Instance 的 MSQL 结果，不从本手册或旧会话推断动态状态。
